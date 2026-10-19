@@ -376,3 +376,27 @@ fn test_failed_campaign_withdrawal_blocked() {
     client.withdraw(&admin, &300);
 }
 
+
+#[test]
+#[should_panic]
+fn test_execute_withdrawal_requires_admin_auth() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(100);
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let (token_client, stellar_client) = create_token_contract(&env, &token_admin);
+
+    let contributor = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    stellar_client.mint(&contributor, &1000);
+
+    let client = setup_escrow(&env, &admin, 1000, 500, &token_client.address);
+    client.deposit(&contributor, &1000);
+    client.approve_withdrawal(&400);
+
+    // Drop the mocked admin auth: a third party must not be able to execute.
+    env.set_auths(&[]);
+    client.execute_withdrawal(&attacker, &400);
+}

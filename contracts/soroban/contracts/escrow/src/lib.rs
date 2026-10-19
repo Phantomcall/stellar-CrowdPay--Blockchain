@@ -102,6 +102,48 @@ impl EscrowContract {
         );
     }
 
+    pub fn approve_withdrawal(env: Env, release_amount: i128) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        let current_approved: i128 = env.storage().instance().get(&DataKey::ApprovedWithdrawal).unwrap_or(0);
+        let approved = current_approved + release_amount;
+        env.storage().instance().set(&DataKey::ApprovedWithdrawal, &approved);
+        env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
+
+        env.events().publish(
+            (symbol_short!("approve"), admin),
+            release_amount,
+        );
+    }
+
+    /// Execute a previously approved withdrawal.
+    ///
+    /// Only the escrow admin (the milestones contract for campaign escrows)
+    /// may move approved funds, so an approval cannot be front-run by a third
+    /// party redirecting the payout to an arbitrary address.
+    pub fn execute_withdrawal(env: Env, to: Address, release_amount: i128) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        let approved: i128 = env.storage().instance().get(&DataKey::ApprovedWithdrawal).unwrap_or(0);
+        if approved < release_amount {
+            panic!("Insufficient approved amount");
+        }
+
+        let asset: Address = env.storage().instance().get(&DataKey::Asset).unwrap();
+        let client = token::Client::new(&env, &asset);
+        client.transfer(&env.current_contract_address(), &to, &release_amount);
+
+        env.storage().instance().set(&DataKey::ApprovedWithdrawal, &(approved - release_amount));
+        env.storage().instance().extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_BUMP);
+
+        env.events().publish(
+            (symbol_short!("withdraw"), to),
+            release_amount,
+        );
+    }
+
     pub fn approve_milestone_withdrawal(env: Env, caller: Address, amount: i128) {
         caller.require_auth();
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
