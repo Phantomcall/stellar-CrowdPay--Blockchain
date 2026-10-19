@@ -8,7 +8,7 @@ const { updateUserValidation, validateRequest } = require('../middleware/validat
 
 router.get('/me', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await db.query(
-    `SELECT id, email, name, wallet_public_key, wallet_type, role, kyc_status, kyc_completed_at, created_at
+    `SELECT id, email, name, wallet_public_key, wallet_type, role, kyc_status, kyc_completed_at, created_at, notification_preferences
      FROM users
      WHERE id = $1`,
     [req.user.userId]
@@ -104,13 +104,26 @@ router.get('/me/contributions', requireAuth, asyncHandler(async (req, res) => {
   res.json(rows);
 }));
 
-// PATCH /api/users/me — update display name only
+// PATCH /api/users/me — update display name and/or notification preferences
 router.patch('/me', requireAuth, updateUserValidation, validateRequest, asyncHandler(async (req, res) => {
-  const { name } = req.body;
+  const { name, notification_preferences: notificationPreferences } = req.body;
+
+  const setClauses = [];
+  const values = [];
+  if (name !== undefined) {
+    values.push(name);
+    setClauses.push(`name = $${values.length}`);
+  }
+  if (notificationPreferences !== undefined) {
+    values.push(JSON.stringify(notificationPreferences));
+    setClauses.push(`notification_preferences = $${values.length}::jsonb`);
+  }
+  values.push(req.user.userId);
+
   const { rows } = await db.query(
-    `UPDATE users SET name = $1 WHERE id = $2
-     RETURNING id, email, name, wallet_public_key, wallet_type, role, kyc_status, kyc_completed_at, created_at`,
-    [name, req.user.userId]
+    `UPDATE users SET ${setClauses.join(', ')} WHERE id = $${values.length}
+     RETURNING id, email, name, wallet_public_key, wallet_type, role, kyc_status, kyc_completed_at, created_at, notification_preferences`,
+    values
   );
   if (!rows.length) return res.status(404).json({ error: 'User not found' });
   res.json(rows[0]);

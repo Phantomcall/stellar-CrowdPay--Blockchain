@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Navigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { stellarExpertAccountUrl } from '../config/stellar';
@@ -34,20 +34,48 @@ export default function Profile() {
   const [passwordSuccess, setPasswordSuccess] = useState('');
 
   // Notification preferences
-  const [notifications, setNotifications] = useState(() => {
-    try {
-      const stored = localStorage.getItem('cp_notification_preferences');
-      return stored ? JSON.parse(stored) : DEFAULT_NOTIFICATIONS;
-    } catch {
-      return DEFAULT_NOTIFICATIONS;
-    }
-  });
+  const [notifications, setNotifications] = useState(DEFAULT_NOTIFICATIONS);
   const [notifSuccess, setNotifSuccess] = useState('');
+  const [notifError, setNotifError] = useState('');
+  const [notifSaving, setNotifSaving] = useState(false);
+
+  // Track pending success-message timers so they can be cleared on unmount.
+  const timeoutsRef = useRef([]);
+  const scheduleTimeout = (fn, ms) => {
+    const id = window.setTimeout(() => {
+      timeoutsRef.current = timeoutsRef.current.filter((t) => t !== id);
+      fn();
+    }, ms);
+    timeoutsRef.current.push(id);
+  };
+  useEffect(() => () => {
+    timeoutsRef.current.forEach((id) => window.clearTimeout(id));
+    timeoutsRef.current = [];
+  }, []);
 
   useEffect(() => {
     if (user) {
       setName(user.name || '');
       setNewEmail(user.email || '');
+    }
+  }, [user]);
+
+  // Hydrate notification preferences from the server, falling back to any
+  // legacy localStorage value (which predates server-side persistence).
+  useEffect(() => {
+    if (!user) return;
+    const serverPrefs = user.notification_preferences;
+    if (serverPrefs && typeof serverPrefs === 'object' && Object.keys(serverPrefs).length > 0) {
+      setNotifications({ ...DEFAULT_NOTIFICATIONS, ...serverPrefs });
+      return;
+    }
+    try {
+      const stored = localStorage.getItem('cp_notification_preferences');
+      if (stored) {
+        setNotifications({ ...DEFAULT_NOTIFICATIONS, ...JSON.parse(stored) });
+      }
+    } catch {
+      // ignore malformed legacy storage
     }
   }, [user]);
 
@@ -76,7 +104,7 @@ export default function Profile() {
       const updatedUser = await api.updateMe({ name: name.trim() });
       if (updateUser) updateUser(updatedUser);
       setSuccess('Profile updated successfully');
-      setTimeout(() => setSuccess(''), 3000);
+      scheduleTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -86,7 +114,7 @@ export default function Profile() {
 
   const handleSaveEmail = async (e) => {
     e.preventDefault();
-    if (!newEmail.trim() || !newEmail.includes('@')) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.trim())) {
       setEmailError('Please enter a valid email address');
       return;
     }
@@ -97,7 +125,7 @@ export default function Profile() {
       const updatedUser = await api.updateMe({ email: newEmail.trim() });
       if (updateUser) updateUser(updatedUser);
       setEmailSuccess('Email address updated successfully');
-      setTimeout(() => setEmailSuccess(''), 3000);
+      scheduleTimeout(() => setEmailSuccess(''), 3000);
     } catch (err) {
       setEmailError(err.message || 'Failed to update email address');
     } finally {
@@ -128,7 +156,7 @@ export default function Profile() {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      setTimeout(() => setPasswordSuccess(''), 3000);
+      scheduleTimeout(() => setPasswordSuccess(''), 3000);
     } catch (err) {
       setPasswordError(err.message || 'Failed to change password');
     } finally {
@@ -136,22 +164,32 @@ export default function Profile() {
     }
   };
 
-  const handleToggleNotification = (key) => {
+  const handleToggleNotification = async (key) => {
+    const previous = notifications;
     const updated = { ...notifications, [key]: !notifications[key] };
     setNotifications(updated);
+    setNotifError('');
+    setNotifSuccess('');
+    setNotifSaving(true);
     try {
-      localStorage.setItem('cp_notification_preferences', JSON.stringify(updated));
+      const saved = await api.updateMe({ notification_preferences: updated });
+      const persisted = saved?.notification_preferences || updated;
+      setNotifications({ ...DEFAULT_NOTIFICATIONS, ...persisted });
+      if (updateUser) updateUser({ ...user, ...saved });
       setNotifSuccess('Notification preferences saved');
-      setTimeout(() => setNotifSuccess(''), 2500);
-    } catch {
-      // ignore storage errors
+      scheduleTimeout(() => setNotifSuccess(''), 2500);
+    } catch (err) {
+      setNotifications(previous);
+      setNotifError(err.message || 'Could not save notification preferences');
+    } finally {
+      setNotifSaving(false);
     }
   };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(user.wallet_public_key);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    scheduleTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -278,6 +316,7 @@ export default function Profile() {
         </p>
 
         {notifSuccess && <p className="alert alert--success" style={{ marginBottom: '1rem' }}>{notifSuccess}</p>}
+        {notifError && <p className="alert alert--error" style={{ marginBottom: '1rem' }} role="alert">{notifError}</p>}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
@@ -285,6 +324,7 @@ export default function Profile() {
               type="checkbox"
               checked={notifications.contributions}
               onChange={() => handleToggleNotification('contributions')}
+              disabled={notifSaving}
             />
             <div>
               <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>Contribution receipts</div>
@@ -297,6 +337,7 @@ export default function Profile() {
               type="checkbox"
               checked={notifications.milestones}
               onChange={() => handleToggleNotification('milestones')}
+              disabled={notifSaving}
             />
             <div>
               <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>Milestone progress</div>
@@ -309,6 +350,7 @@ export default function Profile() {
               type="checkbox"
               checked={notifications.campaignUpdates}
               onChange={() => handleToggleNotification('campaignUpdates')}
+              disabled={notifSaving}
             />
             <div>
               <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>Campaign updates</div>
@@ -321,6 +363,7 @@ export default function Profile() {
               type="checkbox"
               checked={notifications.securityAlerts}
               onChange={() => handleToggleNotification('securityAlerts')}
+              disabled={notifSaving}
             />
             <div>
               <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>Security alerts</div>

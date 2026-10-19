@@ -247,9 +247,25 @@ const contributionValidation = [
 
 const updateUserValidation = [
   body('name')
+    .optional()
     .customSanitizer(stripHtml)
     .notEmpty()
-    .withMessage('name is required'),
+    .withMessage('name cannot be empty'),
+  body('notification_preferences')
+    .optional()
+    .isObject()
+    .withMessage('notification_preferences must be an object'),
+  body('notification_preferences.*')
+    .optional()
+    .isBoolean()
+    .withMessage('notification preference values must be booleans'),
+  body()
+    .custom((value) => {
+      if (value.name === undefined && value.notification_preferences === undefined) {
+        throw new Error('Provide name or notification_preferences');
+      }
+      return true;
+    }),
 ];
 
 const withdrawalValidation = [
