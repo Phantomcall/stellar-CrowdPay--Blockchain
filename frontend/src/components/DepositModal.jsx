@@ -50,7 +50,7 @@ export default function DepositModal({ onClose, onSuccess }) {
         }
         if (next.status === 'failed') {
           setError(next.last_error || 'The deposit could not be completed.');
-          setPhase('form');
+          setPhase('failed');
           if (popupRef.current && !popupRef.current.closed) popupRef.current.close();
         }
       } catch (err) {
@@ -235,6 +235,11 @@ export default function DepositModal({ onClose, onSuccess }) {
               Finish the hosted deposit flow in the popup window. CrowdPay is polling the anchor and will update
               your wallet balance automatically when the funds arrive.
             </p>
+            {error && (
+              <p className="alert alert--error" style={{ marginBottom: '1rem' }} role="alert">
+                {error}
+              </p>
+            )}
             {session?.anchor_transaction_id && (
               <p style={{ fontSize: '0.875rem', marginBottom: '0.75rem' }}>
                 <strong>Anchor transaction:</strong> {session.anchor_transaction_id}
@@ -254,6 +259,23 @@ export default function DepositModal({ onClose, onSuccess }) {
               Close
             </button>
           </div>
+        ) : phase === 'failed' ? (
+          <div>
+            <h2 id="deposit-title" style={styles.title}>
+              Deposit failed
+            </h2>
+            <p className="alert alert--error" style={{ marginBottom: '1rem' }} role="alert">
+              {error || 'The deposit could not be completed.'}
+            </p>
+            {session?.anchor_transaction_id && (
+              <p style={{ fontSize: '0.875rem', marginBottom: '0.75rem' }}>
+                <strong>Anchor reference:</strong> {session.anchor_transaction_id}
+              </p>
+            )}
+            <button type="button" className="btn-primary" style={{ width: '100%', marginTop: '0.5rem' }} onClick={handleClose}>
+              Close
+            </button>
+          </div>
         ) : (
           <div>
             <h2 id="deposit-title" style={styles.title}>
@@ -265,11 +287,6 @@ export default function DepositModal({ onClose, onSuccess }) {
             {session?.anchor_transaction_id && (
               <p style={{ fontSize: '0.875rem', marginBottom: '0.75rem' }}>
                 <strong>Anchor reference:</strong> {session.anchor_transaction_id}
-              </p>
-            )}
-            {error && (
-              <p className="alert alert--error" style={{ marginBottom: '1rem' }} role="alert">
-                {error}
               </p>
             )}
             <button type="button" className="btn-primary" style={{ width: '100%', marginTop: '0.5rem' }} onClick={handleClose}>
